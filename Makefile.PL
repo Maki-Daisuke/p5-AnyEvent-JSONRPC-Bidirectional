@@ -2,7 +2,9 @@ use inc::Module::Install;
 name 'AnyEvent-JSONRPC-Bidirectional';
 all_from 'lib/AnyEvent/JSONRPC/Bidirectional.pm';
 
-# requires '';
+requires 'Carp';
+requires 'AnyEvent::Handle';
+requires 'Try::Tiny' => 0.07;
 
 tests 't/*.t';
 author_tests 'xt';
