@@ -13,22 +13,13 @@ use UNIVERSAL qw/isa/;
 
 sub new {
     my ($class, %args) = @_;
-    my $callbacks   = delete $args{callbacks};
-    my $on_error_cb = delete $args{on_error} || sub{};
+    my $callbacks = delete $args{callbacks};
+    my $on_error  = delete $args{on_error} || sub{};
     my $self;
-    my $on_error = sub{
-        my ($fatal, $msg) = @_;
-        $self->destroy  if $fatal;
-        $on_error_cb->($self, $fatal, $msg);
-    };
     $args{on_error} = sub{
         my ($hdl, $fatal, $msg) = @_;
-        $on_error->($fatal, $msg);
-    };
-    my $on_eof_cb = delete $args{on_eof} || sub{};
-    $args{on_eof} = sub{
-        $on_eof_cb->(@_);
-        $on_error->(1, "connection closed by peer");
+        $self->destroy  if $fatal;
+        $on_error->($hdl, $fatal, $msg);
     };
     $args{on_read} = sub {
         shift->unshift_read(json => sub{ $self->_dispatch($_[1]) });
@@ -51,23 +42,29 @@ sub destroy {
     delete($self->{_res_cvs});
 }
 
+sub reg_cb {
+    my ($self, %cbs) = @_;
+    if ( my $callbacks = $self->{_callbacks} ) {
+        while ( my ($k, $v) = each %cbs ) {
+            $callbacks->{$k} = $v;
+        }
+    }
+}
+
 sub call {
-    my ($self, $method, $args, $cb) = @_;
+    my ($self, $method, @args) = @_;
     return  unless $self->{_hdl};
-    croak "args must be an arrayref"    unless isa($args, 'ARRAY');
-    croak "callback must be a coderef"  unless isa($cb, 'CODE');
     my $id = $self->{_msgid}++;
     my $cv = AE::cv;
-    $cv->cb($cb);
     $self->{_res_cvs}{$id} = $cv;
-    $self->{_hdl}->push_write(json => {id => $id, method => "$method", params => $args});
+    $self->{_hdl}->push_write(json => {id => $id, method => "$method", params => \@args});
+    $cv;
 }
 
 sub notify {
-    my ($self, $method, $args) = @_;
+    my ($self, $method, @args) = @_;
     return  unless $self->{_hdl};
-    croak "args must be an arrayref"  unless isa($args, 'ARRAY');
-    $self->{_hdl}->push_write(json => {id => undef, method => "$method", params => $args});
+    $self->{_hdl}->push_write(json => {id => undef, method => "$method", params => \@args});
 }
 
 sub _dispatch {
@@ -123,7 +120,6 @@ sub _return_error {
     $self->{_hdl}->push_write(json => {id => $id, error => $err, result => undef});
 }
 
-use Data::Dumper;
 sub _dispatch_response {
     my ($self, $json) = @_;
     my ($id, $error, $result) = @{$json}{qw/id error result/};
